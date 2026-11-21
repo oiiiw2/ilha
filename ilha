@@ -1,0 +1,1007 @@
+
+-- XLZ HUB
+-- AUTO CAIXA + AUTO VARRER
+-- Painel unico com funcoes independentes
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local PathfindingService = game:GetService("PathfindingService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Player = Players.LocalPlayer
+local env = getgenv and getgenv() or _G
+
+-- LIMPAR VERSAO ANTERIOR
+if env.MaxiumHub and env.MaxiumHub.gui then
+    pcall(function()
+        env.MaxiumHub.gui:Destroy()
+    end)
+end
+
+local Hub = {
+    gui = nil,
+    CaixaAtivo = false,
+    VarrerAtivo = false,
+    Velocidade = 24,
+    CaixaVelocidade = 24,
+    Movimento = nil
+}
+
+env.MaxiumHub = Hub
+
+-- CORES
+local Roxo = Color3.fromRGB(28,28,28) -- botoes desligados
+local Fundo = Color3.fromRGB(0,0,0)
+local Fundo2 = Color3.fromRGB(8,8,8)
+local Branco = Color3.fromRGB(255,255,255)
+local Vermelho = Color3.fromRGB(200,25,35)
+local Verde = Color3.fromRGB(65,155,105)
+local Cinza = Color3.fromRGB(35,35,35)
+
+-- PERSONAGEM
+local function Personagem()
+    local char = Player.Character
+    if not char then return nil,nil end
+
+    return char:FindFirstChild("HumanoidRootPart"),
+        char:FindFirstChildOfClass("Humanoid")
+end
+
+-- CONTROLE COMPARTILHADO DE MOVIMENTO
+local function AdquirirMovimento(nome, ativo)
+    while ativo() and Hub.Movimento ~= nil do
+        task.wait(0.15)
+    end
+
+    if not ativo() then return false end
+
+    Hub.Movimento = nome
+    return true
+end
+
+local function LiberarMovimento(nome)
+    if Hub.Movimento == nome then
+        Hub.Movimento = nil
+    end
+end
+
+-- INTERFACE
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "XLZ"
+Gui.ResetOnSpawn = false
+Gui.Parent = Player:WaitForChild("PlayerGui")
+Hub.gui = Gui
+
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.fromOffset(350, 470)
+Frame.Position = UDim2.new(0.5,-175,0.5,-235)
+Frame.BackgroundColor3 = Fundo
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Parent = Gui
+
+Instance.new("UICorner",Frame).CornerRadius =
+    UDim.new(0,14)
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Vermelho
+Stroke.Thickness = 1.7
+Stroke.Parent = Frame
+
+local Topo = Instance.new("Frame")
+Topo.Size = UDim2.new(1,0,0,50)
+Topo.BackgroundColor3 = Color3.fromRGB(5,5,5)
+Topo.BorderSizePixel = 0
+Topo.Parent = Frame
+
+Instance.new("UICorner",Topo).CornerRadius =
+    UDim.new(0,14)
+
+local Titulo = Instance.new("TextLabel")
+Titulo.Size = UDim2.new(1,-75,1,0)
+Titulo.Position = UDim2.fromOffset(14,0)
+Titulo.BackgroundTransparency = 1
+Titulo.Text = "XLZ"
+Titulo.TextColor3 = Branco
+Titulo.Font = Enum.Font.GothamBold
+Titulo.TextSize = 18
+Titulo.TextXAlignment = Enum.TextXAlignment.Left
+Titulo.Parent = Topo
+
+local Minimizar = Instance.new("TextButton")
+Minimizar.Size = UDim2.fromOffset(34,30)
+Minimizar.Position = UDim2.new(1,-44,0,10)
+Minimizar.BackgroundColor3 = Cinza
+Minimizar.Text = "−"
+Minimizar.TextColor3 = Branco
+Minimizar.Font = Enum.Font.GothamBold
+Minimizar.TextSize = 21
+Minimizar.Parent = Topo
+
+Instance.new("UICorner",Minimizar).CornerRadius =
+    UDim.new(0,7)
+
+local Conteudo = Instance.new("ScrollingFrame")
+Conteudo.Position = UDim2.fromOffset(12,60)
+Conteudo.Size = UDim2.new(1,-24,1,-72)
+Conteudo.BackgroundTransparency = 1
+Conteudo.BorderSizePixel = 0
+Conteudo.ScrollBarThickness = 3
+Conteudo.ScrollBarImageColor3 = Vermelho
+Conteudo.CanvasSize = UDim2.new(0,0,0,0)
+Conteudo.Parent = Frame
+
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0,10)
+Layout.SortOrder = Enum.SortOrder.LayoutOrder
+Layout.Parent = Conteudo
+
+Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    Conteudo.CanvasSize = UDim2.fromOffset(
+        0,Layout.AbsoluteContentSize.Y + 10
+    )
+end)
+
+local function Label(parent,text,y,height,size)
+    local l = Instance.new("TextLabel")
+    l.Position = UDim2.fromOffset(10,y)
+    l.Size = UDim2.new(1,-20,0,height)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = Branco
+    l.Font = Enum.Font.GothamMedium
+    l.TextSize = size or 12
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.Parent = parent
+    return l
+end
+
+local function Botao(parent,text,y,color)
+    local b = Instance.new("TextButton")
+    b.Position = UDim2.fromOffset(10,y)
+    b.Size = UDim2.new(1,-20,0,35)
+    b.BackgroundColor3 = color
+    b.Text = text
+    b.TextColor3 = Branco
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.Parent = parent
+
+    Instance.new("UICorner",b).CornerRadius =
+        UDim.new(0,7)
+
+    Instance.new("UIStroke",b).Color = Color3.fromRGB(55,55,55)
+
+    b.MouseEnter:Connect(function()
+        TweenService:Create(b,TweenInfo.new(0.12),{
+            BackgroundColor3 = (b.BackgroundColor3 == Vermelho)
+                and Vermelho or Color3.fromRGB(48,48,48)
+        }):Play()
+    end)
+
+    b.MouseLeave:Connect(function()
+        local ligado = string.find(string.upper(b.Text),"DESATIVAR") ~= nil
+        TweenService:Create(b,TweenInfo.new(0.12),{
+            BackgroundColor3 = ligado and Vermelho or Roxo
+        }):Play()
+    end)
+
+    return b
+end
+
+local function CorBotao(botao,cor)
+    TweenService:Create(botao,TweenInfo.new(
+        0.18,Enum.EasingStyle.Quad,Enum.EasingDirection.Out
+    ),{BackgroundColor3 = cor}):Play()
+end
+
+-- SECOES FIXAS: NAO MINIMIZAM INDIVIDUALMENTE
+local function CriarSecao(nome,ordem,altura)
+    local Card = Instance.new("Frame")
+    Card.Size = UDim2.new(1,0,0,altura)
+    Card.BackgroundColor3 = Fundo2
+    Card.BorderSizePixel = 0
+    Card.LayoutOrder = ordem
+    Card.ClipsDescendants = true
+    Card.Parent = Conteudo
+
+    Instance.new("UICorner",Card).CornerRadius =
+        UDim.new(0,9)
+
+    local CardStroke = Instance.new("UIStroke")
+    CardStroke.Color = Color3.fromRGB(45,45,45)
+    CardStroke.Thickness = 1
+    CardStroke.Parent = Card
+
+    local Header = Instance.new("TextLabel")
+    Header.Size = UDim2.new(1,-20,0,38)
+    Header.Position = UDim2.fromOffset(10,0)
+    Header.BackgroundTransparency = 1
+    Header.Text = nome
+    Header.TextColor3 = Branco
+    Header.Font = Enum.Font.GothamBlack
+    Header.TextSize = 19
+    Header.TextXAlignment = Enum.TextXAlignment.Left
+    Header.Parent = Card
+
+    local Body = Instance.new("Frame")
+    Body.Position = UDim2.fromOffset(0,42)
+    Body.Size = UDim2.new(1,0,1,-42)
+    Body.BackgroundTransparency = 1
+    Body.Visible = true
+    Body.Parent = Card
+
+    return Body
+end
+
+-- =================================
+-- AUTO CAIXA
+-- =================================
+
+local CaixaBody = CriarSecao("AUTO CAIXA",1,225)
+
+local CaixaStatus = Label(
+    CaixaBody,"Status: DESATIVADO",0,25,12
+)
+
+local CaixaProgresso = Label(
+    CaixaBody,"Aguardando...",25,23,11
+)
+
+local CaixaSpeedLabel = Label(
+    CaixaBody,"Speed do Caixa: 24  |  Limite: 8-100",52,22,11
+)
+
+local CaixaMenos = Botao(
+    CaixaBody,"− SPEED CAIXA",78,Color3.fromRGB(72,48,103)
+)
+
+local CaixaMais = Botao(
+    CaixaBody,"+ SPEED CAIXA",118,Color3.fromRGB(105,62,160)
+)
+
+local CaixaStart = Botao(
+    CaixaBody,"▶ ATIVAR AUTO CAIXA",158,Roxo
+)
+
+-- LOCALIZAR CAIXAS
+local CaixaBase = Workspace
+    :WaitForChild("Construcoes")
+    :WaitForChild("PrisaoFolder")
+    :WaitForChild("EmpregoPreso")
+
+local Caixa = CaixaBase:WaitForChild("LocalCaixa")
+local Entrega = CaixaBase:WaitForChild("LocalEntrega")
+
+local CaixaPrompt = Caixa:WaitForChild("ProximityPrompt")
+local EntregaPrompt = Entrega:WaitForChild("ProximityPrompt")
+
+local function StatusCaixa(texto)
+    CaixaStatus.Text = "Status: "..texto
+end
+
+local function Posicao(obj)
+    if obj:IsA("Attachment") then
+        return obj.WorldPosition
+    elseif obj:IsA("BasePart") then
+        return obj.Position
+    elseif obj:IsA("Model") then
+        return obj:GetPivot().Position
+    end
+
+    local part = obj:FindFirstAncestorWhichIsA("BasePart")
+    return part and part.Position
+end
+
+local function Aproximar(obj,prompt)
+    local root = Personagem()
+    local target = Posicao(obj)
+
+    if not root or not target then return nil end
+
+    local direction = root.Position-target
+
+    if direction.Magnitude <= prompt.MaxActivationDistance*0.55 then
+        return root.Position
+    end
+
+    if direction.Magnitude < 0.1 then
+        direction = Vector3.new(1,0,0)
+    end
+
+    local distance = math.max(
+        1,math.min(prompt.MaxActivationDistance*0.55,5)
+    )
+
+    return target + direction.Unit*distance
+end
+
+local function MoverCaixa(position)
+    local root,humanoid = Personagem()
+    if not root or not humanoid then return false end
+    if not Hub.CaixaAtivo then return false end
+
+    -- Speed independente do Auto Varrer.
+    humanoid.WalkSpeed = Hub.CaixaVelocidade
+
+    -- Vai diretamente ao destino, sem calcular waypoints/curvas.
+    humanoid:MoveTo(position)
+
+    local terminou = false
+    local chegou = false
+
+    local connection = humanoid.MoveToFinished:Connect(function(result)
+        chegou = result
+        terminou = true
+    end)
+
+    local timeout = os.clock()+20
+
+    while Hub.CaixaAtivo and not terminou and os.clock()<timeout do
+        root,humanoid = Personagem()
+        if not root or not humanoid then
+            connection:Disconnect()
+            return false
+        end
+
+        humanoid.WalkSpeed = Hub.CaixaVelocidade
+
+        if (root.Position-position).Magnitude <= 3 then
+            chegou = true
+            terminou = true
+            break
+        end
+
+        task.wait(0.1)
+    end
+
+    connection:Disconnect()
+    return Hub.CaixaAtivo and chegou
+end
+
+local function Interagir(prompt)
+    if not Hub.CaixaAtivo then return false end
+    if not prompt.Parent or not prompt.Enabled then return false end
+
+    local root = Personagem()
+    local target = Posicao(prompt.Parent)
+
+    if not root or not target then return false end
+
+    if (root.Position-target).Magnitude >
+        prompt.MaxActivationDistance+1 then
+        return false
+    end
+
+    CaixaProgresso.Text = prompt.ActionText
+
+    if typeof(fireproximityprompt) == "function" then
+        local ok = pcall(function()
+            fireproximityprompt(prompt,prompt.HoldDuration)
+        end)
+
+        if ok then
+            task.wait(prompt.HoldDuration+0.5)
+            return Hub.CaixaAtivo
+        end
+    end
+
+    local ok = pcall(function()
+        prompt:InputHoldBegin()
+        task.wait(prompt.HoldDuration+0.3)
+        prompt:InputHoldEnd()
+    end)
+
+    return ok and Hub.CaixaAtivo
+end
+
+local function EtapaCaixa(obj,prompt,nome)
+    if not Hub.CaixaAtivo then return false end
+
+    StatusCaixa("INDO PARA "..nome)
+    CaixaProgresso.Text = "Calculando caminho..."
+
+    local destino = Aproximar(obj,prompt)
+    if not destino then return false end
+
+    if not MoverCaixa(destino) then
+        CaixaProgresso.Text = "Falha no caminho"
+        return false
+    end
+
+    if not Hub.CaixaAtivo then return false end
+
+    task.wait(0.3)
+
+    local root = Personagem()
+    local target = Posicao(prompt.Parent)
+
+    if not root or not target then return false end
+
+    if (root.Position-target).Magnitude >
+        prompt.MaxActivationDistance then
+        CaixaProgresso.Text = "Fora do alcance"
+        return false
+    end
+
+    StatusCaixa("INTERAGINDO")
+    return Interagir(prompt)
+end
+
+local function ExecutarCaixa()
+    while Hub.CaixaAtivo do
+        if not AdquirirMovimento("CAIXA",function()
+            return Hub.CaixaAtivo
+        end) then break end
+
+        local sucesso = false
+
+        local ok = pcall(function()
+            StatusCaixa("INDO PEGAR CAIXA")
+
+            local pegou = EtapaCaixa(
+                Caixa,CaixaPrompt,"CAIXA"
+            )
+
+            if not pegou or not Hub.CaixaAtivo then return end
+
+            StatusCaixa("INDO ENTREGAR")
+
+            local entregou = EtapaCaixa(
+                Entrega,EntregaPrompt,"ENTREGA"
+            )
+
+            if entregou and Hub.CaixaAtivo then
+                CaixaProgresso.Text = "ENTREGA CONCLUIDA!"
+                sucesso = true
+            end
+        end)
+
+        LiberarMovimento("CAIXA")
+
+        if not ok or not sucesso then
+            break
+        end
+
+        task.wait(1)
+    end
+
+    Hub.CaixaAtivo = false
+    LiberarMovimento("CAIXA")
+    StatusCaixa("DESATIVADO")
+    CaixaStart.Text = "▶ ATIVAR AUTO CAIXA"
+    CorBotao(CaixaStart,Roxo)
+end
+
+CaixaMenos.MouseButton1Click:Connect(function()
+    Hub.CaixaVelocidade = math.max(8,Hub.CaixaVelocidade-4)
+    CaixaSpeedLabel.Text = "Speed do Caixa: "..Hub.CaixaVelocidade.."  |  Limite: 8-100"
+end)
+
+CaixaMais.MouseButton1Click:Connect(function()
+    Hub.CaixaVelocidade = math.min(100,Hub.CaixaVelocidade+4)
+    CaixaSpeedLabel.Text = "Speed do Caixa: "..Hub.CaixaVelocidade.."  |  Limite: 8-100"
+end)
+
+CaixaStart.MouseButton1Click:Connect(function()
+    Hub.CaixaAtivo = not Hub.CaixaAtivo
+
+    if Hub.CaixaAtivo then
+        CaixaStart.Text = "■ DESATIVAR AUTO CAIXA"
+        CorBotao(CaixaStart,Vermelho)
+        StatusCaixa("ATIVADO")
+        task.spawn(ExecutarCaixa)
+    else
+        StatusCaixa("PARANDO...")
+        CaixaProgresso.Text = "Interrompendo..."
+    end
+end)
+
+-- =================================
+-- AUTO VARRER ALEATORIO
+-- =================================
+
+local VarrerBody = CriarSecao("AUTO VARRER",2,240)
+
+local VarrerStatus = Label(
+    VarrerBody,"Status: DESATIVADO",0,23,12
+)
+
+local VarrerDestino = Label(
+    VarrerBody,"Destino: Nenhum",23,23,11
+)
+
+local VelLabel = Label(
+    VarrerBody,"Velocidade: 24  |  Limite: 8-100",46,23,11
+)
+
+local Menos = Botao(
+    VarrerBody,"− VELOCIDADE",72,Color3.fromRGB(72,48,103)
+)
+
+local Mais = Botao(
+    VarrerBody,"+ VELOCIDADE",112,Color3.fromRGB(105,62,160)
+)
+
+local VarrerStart = Botao(
+    VarrerBody,"▶ ATIVAR AUTO VARRER",152,Roxo
+)
+
+local Pasta = Workspace:WaitForChild("LocaisVarrer")
+local Remote = ReplicatedStorage:WaitForChild("RemoteVarrer")
+
+-- CONFIGURACOES DO AUTO VARRER
+local DistanciaChegada = 5
+local TempoVarredura = 5
+local EsperaAposVarrer = 1
+local TempoAntiRepeticao = 15
+local ultimaVisita = {}
+
+local function StatusVarrer(texto)
+    VarrerStatus.Text = "Status: "..texto
+end
+
+-- Usa coordenadas para nao contar duas Parts sobrepostas
+-- como locais diferentes.
+local function ChaveLocal(posicao)
+    return string.format("%d:%d:%d",
+        math.floor(posicao.X/2+0.5),
+        math.floor(posicao.Y/2+0.5),
+        math.floor(posicao.Z/2+0.5)
+    )
+end
+
+-- Busca dinamicamente todos os locais disponiveis na pasta.
+local function ObterLocais()
+    local locais = {}
+    local vistos = {}
+
+    for _,obj in ipairs(Pasta:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local chave = ChaveLocal(obj.Position)
+
+            if not vistos[chave] then
+                vistos[chave] = true
+                table.insert(locais,{
+                    part = obj,
+                    pos = obj.Position,
+                    chave = chave,
+                    nome = obj.Name
+                })
+            end
+        end
+    end
+
+    return locais
+end
+
+local function EscolherLocal()
+    local locais = ObterLocais()
+
+    if #locais == 0 then
+        return nil,"NENHUM LOCAL ENCONTRADO"
+    end
+
+    local agora = os.clock()
+    local disponiveis = {}
+
+    for _,localInfo in ipairs(locais) do
+        local ultima = ultimaVisita[localInfo.chave] or -math.huge
+
+        if agora-ultima >= TempoAntiRepeticao then
+            table.insert(disponiveis,localInfo)
+        end
+    end
+
+    if #disponiveis == 0 then
+        return nil,"AGUARDANDO ANTI-REPETICAO"
+    end
+
+    return disponiveis[math.random(1,#disponiveis)]
+end
+
+local function MoverVarrer(posicao)
+    local maxTentativas = 3
+    local distanciaWaypoint = 3
+
+    for tentativa = 1, maxTentativas do
+        if not Hub.VarrerAtivo then return false end
+
+        local root, humanoid = Personagem()
+        if not root or not humanoid then return false end
+
+        -- Aplica a velocidade escolhida sem ficar reiniciando o movimento.
+        local velocidade = math.clamp(tonumber(Hub.Velocidade) or 24, 8, 100)
+        if humanoid.WalkSpeed ~= velocidade then
+            humanoid.WalkSpeed = velocidade
+        end
+
+        local path = PathfindingService:CreatePath({
+            AgentRadius = 2,
+            AgentHeight = 5,
+            AgentCanJump = true,
+            WaypointSpacing = 7
+        })
+
+        local calculou = pcall(function()
+            path:ComputeAsync(root.Position, posicao)
+        end)
+
+        if not calculou or path.Status ~= Enum.PathStatus.Success then
+            StatusVarrer("RECALCULANDO ROTA • " .. tentativa .. "/" .. maxTentativas)
+            task.wait(0.2)
+            continue
+        end
+
+        local rotaOK = true
+        local waypoints = path:GetWaypoints()
+
+        for _, waypoint in ipairs(waypoints) do
+            if not Hub.VarrerAtivo then return false end
+
+            root, humanoid = Personagem()
+            if not root or not humanoid then return false end
+
+            velocidade = math.clamp(tonumber(Hub.Velocidade) or 24, 8, 100)
+            if humanoid.WalkSpeed ~= velocidade then
+                humanoid.WalkSpeed = velocidade
+            end
+
+            if waypoint.Action == Enum.PathWaypointAction.Jump then
+                humanoid.Jump = true
+            end
+
+            humanoid:MoveTo(waypoint.Position)
+
+            local inicio = os.clock()
+            local ultimaPosicao = root.Position
+            local ultimoProgresso = os.clock()
+            local chegou = false
+
+            while Hub.VarrerAtivo do
+                root, humanoid = Personagem()
+                if not root or not humanoid then return false end
+
+                velocidade = math.clamp(tonumber(Hub.Velocidade) or 24, 8, 100)
+                if humanoid.WalkSpeed ~= velocidade then
+                    humanoid.WalkSpeed = velocidade
+                end
+
+                local distanciaPonto = (root.Position - waypoint.Position).Magnitude
+                local distanciaFinal = (root.Position - posicao).Magnitude
+                VarrerDestino.Text = "Destino: " .. math.floor(distanciaFinal) .. " studs"
+
+                if distanciaPonto <= distanciaWaypoint or distanciaFinal <= DistanciaChegada then
+                    chegou = true
+                    break
+                end
+
+                -- Mede apenas deslocamento horizontal para o pulo nao mascarar travamento.
+                local delta = root.Position - ultimaPosicao
+                local deslocamentoHorizontal = Vector3.new(delta.X, 0, delta.Z).Magnitude
+
+                if deslocamentoHorizontal >= 0.45 then
+                    ultimaPosicao = root.Position
+                    ultimoProgresso = os.clock()
+                end
+
+                if os.clock() - ultimoProgresso >= 2 then
+                    StatusVarrer("PRESO • TENTANDO DESTRAVAR")
+                    humanoid.Jump = true
+                    task.wait(0.25)
+                    rotaOK = false
+                    break
+                end
+
+                if os.clock() - inicio >= 14 then
+                    rotaOK = false
+                    break
+                end
+
+                task.wait(0.06)
+            end
+
+            if not Hub.VarrerAtivo then return false end
+            if not rotaOK or not chegou then
+                rotaOK = false
+                break
+            end
+        end
+
+        if rotaOK then
+            root = Personagem()
+            if root and (root.Position - posicao).Magnitude <= DistanciaChegada then
+                return true
+            end
+        end
+
+        if tentativa < maxTentativas and Hub.VarrerAtivo then
+            StatusVarrer("NOVA TENTATIVA DE ROTA • " .. tentativa .. "/" .. maxTentativas)
+            task.wait(0.25)
+        end
+    end
+
+    StatusVarrer("NAO FOI POSSIVEL ALCANCAR O LOCAL")
+    return false
+end
+
+local function VarrerLocal(localInfo)
+    if not Hub.VarrerAtivo then return false end
+
+    local root,humanoid = Personagem()
+    if not root or not humanoid then return false end
+
+    if (root.Position-localInfo.pos).Magnitude > DistanciaChegada then
+        StatusVarrer("AINDA NAO CHEGOU AO LOCAL")
+        return false
+    end
+
+    if not localInfo.part or not localInfo.part.Parent then
+        StatusVarrer("LOCAL INDISPONIVEL")
+        return false
+    end
+
+    StatusVarrer("VARRANDO LOCAL")
+    VarrerDestino.Text = "Destino: "..localInfo.nome
+
+    -- Marca a visita no momento em que a varredura e iniciada.
+    ultimaVisita[localInfo.chave] = os.clock()
+
+    local enviado = pcall(function()
+        Remote:FireServer(localInfo.part)
+    end)
+
+    if not enviado then
+        StatusVarrer("FALHA AO INICIAR VARREDURA")
+        return false
+    end
+
+    for i = TempoVarredura,1,-1 do
+        if not Hub.VarrerAtivo then return false end
+
+        StatusVarrer("VARRANDO • "..i.."s")
+        task.wait(1)
+    end
+
+    if Hub.VarrerAtivo then
+        StatusVarrer("ESPERANDO")
+        task.wait(EsperaAposVarrer)
+    end
+
+    return Hub.VarrerAtivo
+end
+
+local function ExecutarVarrer()
+    while Hub.VarrerAtivo do
+        if not AdquirirMovimento("VARRER",function()
+            return Hub.VarrerAtivo
+        end) then
+            break
+        end
+
+        local localInfo,erro = EscolherLocal()
+
+        if not localInfo then
+            StatusVarrer(erro)
+            LiberarMovimento("VARRER")
+            task.wait(0.25)
+        else
+            VarrerDestino.Text = "Destino: "..localInfo.nome
+            StatusVarrer("INDO PARA LOCAL ALEATORIO")
+
+            local ok = pcall(function()
+                local chegou = MoverVarrer(localInfo.pos)
+
+                if not Hub.VarrerAtivo then return end
+
+                if chegou then
+                    VarrerLocal(localInfo)
+                else
+                    StatusVarrer("TENTANDO OUTRO LOCAL")
+                    task.wait(0.4)
+                end
+            end)
+
+            LiberarMovimento("VARRER")
+
+            if not ok then
+                StatusVarrer("ERRO - REINICIANDO CICLO")
+                task.wait(0.5)
+            end
+        end
+    end
+
+    Hub.VarrerAtivo = false
+    LiberarMovimento("VARRER")
+    StatusVarrer("DESATIVADO")
+    VarrerDestino.Text = "Destino: Nenhum"
+    VarrerStart.Text = "▶ ATIVAR AUTO VARRER"
+    CorBotao(VarrerStart,Roxo)
+end
+
+VarrerStart.MouseButton1Click:Connect(function()
+    Hub.VarrerAtivo = not Hub.VarrerAtivo
+
+    if Hub.VarrerAtivo then
+        VarrerStart.Text = "■ DESATIVAR AUTO VARRER"
+        CorBotao(VarrerStart,Vermelho)
+        StatusVarrer("ATIVADO")
+        task.spawn(ExecutarVarrer)
+    else
+        StatusVarrer("PARANDO...")
+    end
+end)
+
+-- VELOCIDADE DO AUTO VARRER (INDEPENDENTE DO AUTO CAIXA)
+Menos.MouseButton1Click:Connect(function()
+    Hub.Velocidade = math.max(8,Hub.Velocidade-4)
+    VelLabel.Text = "Velocidade: "..Hub.Velocidade.."  |  Limite: 8-100"
+end)
+
+Mais.MouseButton1Click:Connect(function()
+    Hub.Velocidade = math.min(100,Hub.Velocidade+4)
+    VelLabel.Text = "Velocidade: "..Hub.Velocidade.."  |  Limite: 8-100"
+end)
+
+-- =================================
+-- MINIMIZAR PAINEL + MENU FLUTUANTE
+-- =================================
+
+local minimizado = false
+local tamanhoNormal = UDim2.fromOffset(350,470)
+
+local Menu = Instance.new("TextButton")
+Menu.Name = "MenuFlutuante"
+Menu.AutomaticSize = Enum.AutomaticSize.X
+Menu.Size = UDim2.fromOffset(0,30)
+Menu.Position = UDim2.new(
+    Frame.Position.X.Scale,
+    Frame.Position.X.Offset,
+    Frame.Position.Y.Scale,
+    Frame.Position.Y.Offset
+)
+Menu.BackgroundColor3 = Color3.fromRGB(12,12,12)
+Menu.BackgroundTransparency = 0.12
+Menu.BorderSizePixel = 0
+Menu.Text = " MENU "
+Menu.TextColor3 = Branco
+Menu.Font = Enum.Font.GothamBold
+Menu.TextSize = 13
+Menu.Visible = false
+Menu.Active = true
+Menu.Parent = Gui
+
+local MenuPadding = Instance.new("UIPadding")
+MenuPadding.PaddingLeft = UDim.new(0,5)
+MenuPadding.PaddingRight = UDim.new(0,5)
+MenuPadding.Parent = Menu
+
+Instance.new("UICorner",Menu).CornerRadius = UDim.new(0,6)
+
+local MenuStroke = Instance.new("UIStroke")
+MenuStroke.Color = Vermelho
+MenuStroke.Thickness = 1.5
+MenuStroke.Parent = Menu
+
+local function MinimizarPainel()
+    if minimizado then return end
+    minimizado = true
+    Menu.Position = Frame.Position
+    Menu.Visible = true
+    Conteudo.Visible = false
+    TweenService:Create(Frame,TweenInfo.new(
+        0.22,Enum.EasingStyle.Quad,Enum.EasingDirection.In
+    ),{
+        Size = UDim2.fromOffset(350,0)
+    }):Play()
+    task.wait(0.23)
+    Frame.Visible = false
+end
+
+local function RestaurarPainel()
+    if not minimizado then return end
+    minimizado = false
+    Frame.Visible = true
+    Frame.Size = UDim2.fromOffset(350,0)
+    Conteudo.Visible = true
+    Menu.Visible = false
+    TweenService:Create(Frame,TweenInfo.new(
+        0.25,Enum.EasingStyle.Back,Enum.EasingDirection.Out
+    ),{
+        Size = tamanhoNormal
+    }):Play()
+end
+
+Minimizar.MouseButton1Click:Connect(MinimizarPainel)
+Menu.MouseButton1Click:Connect(RestaurarPainel)
+
+-- =================================
+-- ARRASTAR PAINEL
+-- =================================
+
+local arrastando = false
+local inicioMouse
+local inicioFrame
+
+Topo.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        arrastando = true
+        inicioMouse = input.Position
+        inicioFrame = Frame.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if arrastando and (
+        input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+    ) then
+
+        local delta = input.Position-inicioMouse
+
+        Frame.Position = UDim2.new(
+            inicioFrame.X.Scale,
+            inicioFrame.X.Offset+delta.X,
+            inicioFrame.Y.Scale,
+            inicioFrame.Y.Offset+delta.Y
+        )
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        arrastando = false
+    end
+end)
+
+-- ARRASTAR O BOTAO MENU FLUTUANTE
+local menuArrastando = false
+local menuInicioMouse
+local menuInicioPos
+
+Menu.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        menuArrastando = true
+        menuInicioMouse = input.Position
+        menuInicioPos = Menu.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if menuArrastando and (
+        input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch
+    ) then
+        local delta = input.Position-menuInicioMouse
+        Menu.Position = UDim2.new(
+            menuInicioPos.X.Scale,
+            menuInicioPos.X.Offset+delta.X,
+            menuInicioPos.Y.Scale,
+            menuInicioPos.Y.Offset+delta.Y
+        )
+        Frame.Position = Menu.Position
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        menuArrastando = false
+    end
+end)
+
+-- EFEITO VISUAL
+TweenService:Create(
+    Stroke,
+    TweenInfo.new(1.5,Enum.EasingStyle.Sine,
+        Enum.EasingDirection.InOut,-1,true),
+    {Transparency = 0.55}
+):Play()
+
+print("XLZ CARREGADO COM SUCESSO!")
