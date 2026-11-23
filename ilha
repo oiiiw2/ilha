@@ -1140,7 +1140,8 @@ local player = Player
 local CONFIG = {
 	TextoPromptAlvo = "vender minérios",
 	TituloMenuAlvo = "companhia de mineração",
-	Dispositivo = "COMPUTADOR",
+	-- Detecta automaticamente celular/tablet; o botao do painel continua permitindo alternar.
+	Dispositivo = UIS.TouchEnabled and "CELULAR" or "COMPUTADOR",
 	CoordenadasPC = {
 		{ x = 462, y = 500 }, -- Vender 500
 		{ x = 566, y = 504 }, -- Vender 750
@@ -1550,23 +1551,43 @@ end
 
 local function clicarCoordenada(x, y)
     if CONFIG.Dispositivo == "CELULAR" then
-        if VirtualInputManager.SendTouchEvent then
-            pcall(function()
-                VirtualInputManager:SendTouchEvent(1, Enum.UserInputState.Begin, x, y)
-                task.wait(0.03)
-                VirtualInputManager:SendTouchEvent(1, Enum.UserInputState.End, x, y)
-            end)
-        else
-            warn("[XLZ] Este executor nao oferece SendTouchEvent.")
+        -- Usa exatamente as coordenadas mobile fornecidas.
+        -- SendTouchEvent recebe: id do toque, estado, X e Y.
+        local okBegin, errBegin = pcall(function()
+            VirtualInputManager:SendTouchEvent(1, Enum.UserInputState.Begin, x, y)
+        end)
+        if not okBegin then
+            warn("[XLZ] Falha ao iniciar toque mobile: " .. tostring(errBegin))
+            return false
         end
+
+        task.wait(0.08)
+
+        local okEnd, errEnd = pcall(function()
+            VirtualInputManager:SendTouchEvent(1, Enum.UserInputState.End, x, y)
+        end)
+        if not okEnd then
+            warn("[XLZ] Falha ao finalizar toque mobile: " .. tostring(errEnd))
+            return false
+        end
+        return true
     else
-        pcall(function() VirtualInputManager:SendMouseMoveEvent(x, y, game) end)
-        task.wait(0.015)
-        pcall(function()
+        local okMove = pcall(function()
+            VirtualInputManager:SendMouseMoveEvent(x, y, game)
+        end)
+        task.wait(0.03)
+        local okDown, errDown = pcall(function()
             VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-            task.wait(0.03)
+        end)
+        task.wait(0.06)
+        local okUp, errUp = pcall(function()
             VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
         end)
+        if not okMove or not okDown or not okUp then
+            warn("[XLZ] Falha no clique do computador: " .. tostring(errDown or errUp))
+            return false
+        end
+        return true
     end
 end
 
@@ -1795,6 +1816,7 @@ local MinerActivity = makeLabel(MinerBody, "Atividade: Aguardando inicio", 204, 
 local function atualizarDispositivo()
     DeviceButton.Text = "DISPOSITIVO: " .. (CONFIG.Dispositivo == "CELULAR" and "CELULAR" or "COMPUTADOR")
 end
+atualizarDispositivo()
 DeviceButton.MouseButton1Click:Connect(function()
     CONFIG.Dispositivo = CONFIG.Dispositivo == "COMPUTADOR" and "CELULAR" or "COMPUTADOR"
     atualizarDispositivo()
