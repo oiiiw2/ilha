@@ -632,7 +632,7 @@ end
 
 local State = {
     Running = true, Mining = false, Speed = 16,
-    HoldTime = 15, OreCooldown = 20, LastOre = {},
+    HoldTime = 16, OreCooldown = 20, LastOre = {},
     Status = "Aguardando inicio", Flying = false, PointIndex = 1,
     VisiblePrompts = {}
 }
@@ -1011,15 +1011,38 @@ local function holdMiningPrompt(prompt)
     if not prompt or not prompt.Parent then return false end
 
     local began = false
-    local ok = pcall(function()
+    local completedFullHold = false
+    local ok, err = pcall(function()
         prompt:InputHoldBegin()
         began = true
-        local required = math.max(prompt.HoldDuration or 0, State.HoldTime)
+
+        -- Garante pelo menos 16 segundos reais de retenção.
+        -- Se o próprio prompt exigir mais tempo, respeita o HoldDuration dele.
+        local required = math.max(16, tonumber(prompt.HoldDuration) or 0)
         local started = os.clock()
-        while State.Running and State.Mining and prompt.Parent
-            and os.clock() - started < required do
-            task.wait(0.1)
+        local lastStatusUpdate = 0
+
+        while os.clock() - started < required do
+            -- Se o jogador desligar a mineração, libera o botão imediatamente.
+            if not State.Running or not State.Mining then
+                break
+            end
+            if not prompt.Parent then
+                break
+            end
+
+            local elapsed = os.clock() - started
+            if elapsed - lastStatusUpdate >= 0.5 then
+                State.Status = "Segurando mineracao: "
+                    .. tostring(math.min(math.floor(elapsed), required))
+                    .. "/" .. tostring(required) .. " segundos"
+                lastStatusUpdate = elapsed
+            end
+
+            task.wait(0.05)
         end
+
+        completedFullHold = (os.clock() - started) >= required
     end)
 
     if began then
@@ -1028,7 +1051,13 @@ local function holdMiningPrompt(prompt)
         end)
     end
 
-    return ok and began
+    if not ok then
+        warn("[PRIME X] Erro durante a retencao do prompt: " .. tostring(err))
+        return false
+    end
+
+    -- Não contar como minério coletado se a retenção foi interrompida antes de 16s.
+    return began and completedFullHold and State.Running and State.Mining
 end
 
 local function activatePickaxe()
@@ -1756,7 +1785,7 @@ local function miningLoop()
 
             if ready and State.Running and State.Mining then
                 holdPosition(pointCFrame.Rotation)
-                State.Status = "Botao E apareceu; parando e segurando por " .. tostring(prompt.HoldDuration) .. "s"
+                State.Status = "Botao E apareceu; segurando por pelo menos 16 segundos"
                 local ok = holdMiningPrompt(prompt)
                 if ok then
                     local stones = MineFolder and MineFolder:FindFirstChild("Pedras")
@@ -1776,7 +1805,8 @@ local function miningLoop()
                         end
                     end
                 else
-                    State.Status = "Interacao interrompida ou nao confirmada"
+                    State.Status = "Retencao interrompida antes de completar 16 segundos; minerio nao contado"
+                    task.wait(0.5)
                 end
             else
                 State.Status = "Prompt indisponivel; permanecendo no ponto"
