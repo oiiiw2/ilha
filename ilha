@@ -1490,64 +1490,83 @@ local function menuVendaEstaAberto()
 end
 
 local function segurarAteAbrirMenuVenda(prompt, parteNpc)
-    local _, hrp = obterPersonagem()
-    if hrp and parteNpc and parteNpc.Parent then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(parteNpc.Position.X, hrp.Position.Y, parteNpc.Position.Z))
-    end
-    -- Na venda, usa a camera normal do jogo, como antes.
-    task.wait(0.2)
-
-    if not prompt or not prompt.Parent or not prompt.Enabled then
-        warn("[PRIME X MOBILE] Prompt do vendedor esta indisponivel.")
+    local character, hrp, humanoid = obterPersonagem()
+    if not character or not hrp or not prompt or not prompt.Parent or not parteNpc or not parteNpc.Parent then
+        warn("[PRIME X MOBILE] ERRO VENDA: personagem, prompt ou NPC indisponivel.")
         return false
     end
 
-    local holdDuracao = math.max(tonumber(prompt.HoldDuration) or 0, 0.6)
-    local tempoSegurar = holdDuracao + 0.7
-    local iniciou = false
-    local ok = pcall(function()
-        prompt:InputHoldBegin()
-        iniciou = true
-    end)
-
-    if not ok and typeof(fireproximityprompt) == "function" then
-        pcall(function() fireproximityprompt(prompt, holdDuracao) end)
-        task.wait(tempoSegurar)
-    elseif iniciou then
-        local inicio = os.clock()
-        while os.clock() - inicio < tempoSegurar do
-            if not prompt.Parent then break end
-            if menuVendaEstaAberto() then break end
-            task.wait(0.05)
-        end
-        pcall(function() prompt:InputHoldEnd() end)
+    -- Aproxima e posiciona dentro do alcance real do prompt, sem alterar a camera.
+    local alcance = tonumber(prompt.MaxActivationDistance) or 10
+    local distanciaAlvo = math.max(1.5, math.min(alcance * 0.55, 4))
+    local inicioAproximacao = os.clock()
+    while (hrp.Position - parteNpc.Position).Magnitude > distanciaAlvo and os.clock() - inicioAproximacao < 4 do
+        local direcao = parteNpc.Position - hrp.Position
+        if direcao.Magnitude < 0.1 then break end
+        local novaPos = parteNpc.Position - direcao.Unit * distanciaAlvo
+        character:PivotTo(CFrame.lookAt(novaPos, Vector3.new(parteNpc.Position.X, novaPos.Y, parteNpc.Position.Z)))
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        task.wait(0.1)
+        character, hrp, humanoid = obterPersonagem()
+        if not hrp then break end
     end
 
-    local espera = os.clock()
-    while os.clock() - espera < 2.5 do
-        if menuVendaEstaAberto() then return true end
-        task.wait(0.08)
+    if not hrp or not prompt.Parent or not prompt.Enabled then
+        warn("[PRIME X MOBILE] ERRO VENDA: prompt desativado ou personagem indisponivel.")
+        return false
     end
 
-    -- Segunda tentativa: alguns prompts mobile nao abrem na primeira chamada.
-    if prompt.Parent and prompt.Enabled then
-        pcall(function()
-            if typeof(fireproximityprompt) == "function" then
+    local distancia = (hrp.Position - parteNpc.Position).Magnitude
+    if distancia > alcance then
+        warn("[PRIME X MOBILE] ERRO VENDA: fora do alcance. Distancia=" .. string.format("%.1f", distancia) ..
+            " | Alcance=" .. tostring(alcance))
+        return false
+    end
+
+    hrp.AssemblyLinearVelocity = Vector3.zero
+    hrp.AssemblyAngularVelocity = Vector3.zero
+    hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(parteNpc.Position.X, hrp.Position.Y, parteNpc.Position.Z))
+    task.wait(0.25)
+
+    local holdDuracao = math.max(tonumber(prompt.HoldDuration) or 0, 0)
+    local tentativas = 3
+    for tentativa = 1, tentativas do
+        if not prompt.Parent or not prompt.Enabled then break end
+
+        -- Prioriza a ativacao direta do ProximityPrompt; fallback para hold normal.
+        if typeof(fireproximityprompt) == "function" then
+            local ok, erro = pcall(function()
                 fireproximityprompt(prompt, holdDuracao)
-            else
-                prompt:InputHoldBegin()
-                task.wait(tempoSegurar)
-                prompt:InputHoldEnd()
+            end)
+            if not ok then
+                warn("[PRIME X MOBILE] fireproximityprompt falhou: " .. tostring(erro))
             end
-        end)
+        else
+            local ok, erro = pcall(function()
+                prompt:InputHoldBegin()
+                task.wait(holdDuracao + 0.6)
+                prompt:InputHoldEnd()
+            end)
+            if not ok then
+                warn("[PRIME X MOBILE] InputHold do vendedor falhou: " .. tostring(erro))
+            end
+        end
+
+        local espera = os.clock()
+        while os.clock() - espera < 2.0 do
+            if menuVendaEstaAberto() then
+                print("[PRIME X MOBILE] Painel do vendedor aberto na tentativa " .. tentativa .. ".")
+                return true
+            end
+            task.wait(0.1)
+        end
     end
-    espera = os.clock()
-    while os.clock() - espera < 2 do
-        if menuVendaEstaAberto() then return true end
-        task.wait(0.08)
-    end
-    warn("[PRIME X MOBILE] O menu do vendedor nao abriu apos duas tentativas.")
+
+    warn("[PRIME X MOBILE] ERRO VENDA: NPC nao abriu o painel. Prompt=" ..
+        tostring(prompt.ActionText) .. " | Objeto=" .. tostring(prompt.ObjectText) ..
+        " | Distancia=" .. string.format("%.1f", (hrp.Position - parteNpc.Position).Magnitude) ..
+        " | Alcance=" .. tostring(alcance) .. " | Hold=" .. tostring(holdDuracao))
     return false
 end
 
@@ -1616,8 +1635,19 @@ local function executarVendaERetorno()
 	voarDevagarAteNpc(parteNpc)
 	task.wait(0.05)
 
-	segurarAteAbrirMenuVenda(prompt, parteNpc)
-	task.wait(0.08)
+	local painelAberto = segurarAteAbrirMenuVenda(prompt, parteNpc)
+    if not painelAberto then
+        warn("[PRIME X MOBILE] VENDA CANCELADA: painel nao abriu; nenhum botao de venda sera clicado.")
+        entrarNoCarro(carro, assento)
+        task.wait(0.05)
+        teleporteLivre(destinoRetornoLevantado, carro)
+        task.wait(CONFIG.EsperaCarregarMapa)
+        sairDoCarro()
+        task.wait(0.1)
+        voltarCameraSuperior()
+        return false
+    end
+	task.wait(0.25)
 
 	local coordenadasVenda = CONFIG.CoordenadasCelular
 	local coordenadaFechar = CONFIG.CoordenadaFecharX
