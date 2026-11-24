@@ -1178,7 +1178,7 @@ local CONFIG = {
 		{ x = 524, y = 278 }, -- Vender 6K
 		{ x = 590, y = 277 }, -- Vender 25K
 	},
-	CoordenadaFecharPC = { x = 639, y = 143 },
+	CoordenadaFecharPC = { x = 952, y = 256 },
 	CoordenadasCelular = { 
 		{ x = 320, y = 234 }, -- Vender 500
 		{ x = 395, y = 232 }, -- Vender 750
