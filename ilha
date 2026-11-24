@@ -1186,7 +1186,7 @@ local CONFIG = {
 		{ x = 545, y = 241 }, -- Vender 6K
 		{ x = 593, y = 238 }, -- Vender 25K
 	},
-	CoordenadaFecharCelular = { x = 639, y = 143 },
+	CoordenadaFecharCelular = { x = 651, y = 105 },
 	IntervaloCliqueVender = 1.0, -- 1s de intervalo entre cada clique em "Vender"
 	TempoExtraSegurar = 0.55, -- +0.5s (metade de 1s) extra segurando para abrir a venda
 	TempoMaximoSegurando = 2.2,
