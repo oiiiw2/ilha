@@ -1513,7 +1513,7 @@ local function segurarAteAbrirMenuVenda(prompt, parteNpc)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(parteNpc.Position.X, hrp.Position.Y, parteNpc.Position.Z))
     end
-    enquadrarCameraNoNpc(parteNpc)
+    -- Na venda, usa a camera normal do jogo, como antes.
     task.wait(0.2)
 
     if not prompt or not prompt.Parent or not prompt.Enabled then
@@ -1586,9 +1586,12 @@ local function clicarCoordenada(x, y)
 end
 
 local function executarVendaERetorno()
+    -- Suspende a camera superior durante todo o trajeto e a venda.
+    pararCameraMineracao(true)
 	local character, hrp = obterPersonagem()
 	if not character or not hrp then
 		warn("Personagem ou HumanoidRootPart não encontrado.")
+        voltarCameraSuperior()
 		return
 	end
 
@@ -1599,11 +1602,13 @@ local function executarVendaERetorno()
 	local carro, assento = encontrarMeuCarroPerto()
 	if not carro or not assento then
 		warn("Seu carro não foi encontrado no raio de " .. CONFIG.RaioDetectarCarro .. " studs.")
+        voltarCameraSuperior()
 		return
 	end
 
 	if not entrarNoCarro(carro, assento) then
 		warn("Não foi possível sentar no seu carro.")
+        voltarCameraSuperior()
 		return
 	end
 
@@ -1622,6 +1627,7 @@ local function executarVendaERetorno()
 		task.wait(CONFIG.EsperaCarregarMapa)
 		sairDoCarro()
 		task.wait(0.1)
+        voltarCameraSuperior()
 		return
 	end
 
@@ -1655,6 +1661,7 @@ local function executarVendaERetorno()
 	task.wait(CONFIG.EsperaCarregarMapa)
 	sairDoCarro()
 	task.wait(0.1)
+    voltarCameraSuperior()
 end
 
 local function miningLoop()
