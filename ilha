@@ -631,7 +631,8 @@ local function iniciarCameraSuperior()
         local root = Root
         if State.Running and State.Mining and root and root.Parent then
             local foco = root.Position + Vector3.new(0, 1.5, 0)
-            camera.CFrame = CFrame.lookAt(root.Position + Vector3.new(0, 15, 0), foco)
+            -- Camera superior um pouco mais proxima do personagem.
+            camera.CFrame = CFrame.lookAt(root.Position + Vector3.new(0, 12.5, 0), foco)
             camera.Focus = CFrame.new(foco)
         end
     end)
@@ -984,8 +985,24 @@ local function pressionarTecla1ParaEquiparPicareta()
     return true
 end
 local function activatePickaxe()
-    State.Status = "Selecionando picareta pelo slot 1"
-    return pressionarTecla1ParaEquiparPicareta()
+    State.Status = "Chegou na mina; equipando picareta pelo slot 1"
+    refreshCharacter()
+    for tentativa = 1, 3 do
+        if hasEquippedPickaxe() then
+            return true
+        end
+        State.Status = "Pressionando 1 para equipar picareta (" .. tentativa .. "/3)"
+        if not pressionarTecla1ParaEquiparPicareta() then
+            task.wait(0.25)
+        end
+        task.wait(0.25)
+        refreshCharacter()
+        if hasEquippedPickaxe() then
+            return true
+        end
+    end
+    warn("[XLZ] A tecla 1 foi acionada, mas a picareta nao foi confirmada na mao.")
+    return false
 end
 local function findMiningPromptAtPoint(center, radius)
     if not MineFolder then return nil end
@@ -1031,6 +1048,8 @@ local CONFIG = {
 	PosicaoRetorno = Vector3.new(386.17, 5.08, 2121.79),
 	VelocidadeAproximacaoNpc = 18,
 	DistanciaParadaNpc = 3.5,
+	EsperaAposVenda = 1.0, -- aguarda o jogo processar a venda antes do retorno
+	TentativasAbrirMenu = 2,
 }
 local function obterPersonagem()
 	local character = player.Character or player.CharacterAdded:Wait()
@@ -1251,7 +1270,14 @@ local function voarDevagarAteNpc(parteNpc)
 			character:PivotTo(CFrame.lookAt(novaPos, Vector3.new(alvoPos.X, hrp.Position.Y, alvoPos.Z)))
 		end
 	end
-	return true
+	-- Timeout nao significa chegada: impedir cliques fora do alcance do vendedor.
+	local _, rootFinal = obterPersonagem()
+	if rootFinal and parteNpc and parteNpc.Parent
+		and (rootFinal.Position - parteNpc.Position).Magnitude <= CONFIG.DistanciaParadaNpc + 1 then
+		return true
+	end
+	warn("[PRIME X] Tempo esgotado ao aproximar do NPC de venda.")
+	return false
 end
 local function guiEstaVisivelNaTela(guiObj)
 	if not guiObj or not guiObj.Parent then
@@ -1362,73 +1388,167 @@ local function clicarCoordenada(x, y)
     return true
 end
 local function executarVendaERetorno()
+    -- A camera superior fica desligada durante todo o trajeto e a venda.
     pararCameraMineracao(true)
+
     local function restaurarCamera()
         task.wait(0.1)
         voltarCameraSuperior()
     end
-	local character, hrp = obterPersonagem()
-	if not character or not hrp then
-		warn("Personagem ou HumanoidRootPart não encontrado.")
+
+    local function retornarParaMina(carro, assento, destinoRetornoLevantado)
+        if not carro or not carro.Parent or not assento or not assento.Parent then
+            warn("[PRIME X] Nao foi possivel retornar: carro ou assento indisponivel.")
+            State.Mining = false
+            stopFlight()
+            return false
+        end
+
+        local entrou = entrarNoCarro(carro, assento)
+        if not entrou then
+            task.wait(0.25)
+            entrou = entrarNoCarro(carro, assento)
+        end
+        if not entrou then
+            warn("[PRIME X] Falha ao entrar no carro para voltar a mina.")
+            State.Mining = false
+            stopFlight()
+            return false
+        end
+
+        task.wait(0.15)
+        if not teleporteLivre(destinoRetornoLevantado, carro) then
+            warn("[PRIME X] Falha no teleporte de retorno para a mina.")
+            State.Mining = false
+            stopFlight()
+            return false
+        end
+        task.wait(CONFIG.EsperaCarregarMapa)
+        sairDoCarro()
+        task.wait(0.2)
+        return true
+    end
+
+    local character, hrp = obterPersonagem()
+    if not character or not hrp then
+        warn("[PRIME X] Personagem ou HumanoidRootPart nao encontrado.")
         restaurarCamera()
-		return
-	end
-	local offsetAltura = Vector3.new(0, CONFIG.AlturaLevantadaTp, 0)
-	local destinoVendaLevantado = CFrame.new(CONFIG.PosicaoVenda + offsetAltura)
-	local destinoRetornoLevantado = CFrame.new(CONFIG.PosicaoRetorno + offsetAltura)
-	local carro, assento = encontrarMeuCarroPerto()
-	if not carro or not assento then
-		warn("Seu carro não foi encontrado no raio de " .. CONFIG.RaioDetectarCarro .. " studs.")
+        return false
+    end
+
+    local offsetAltura = Vector3.new(0, CONFIG.AlturaLevantadaTp, 0)
+    local destinoVendaLevantado = CFrame.new(CONFIG.PosicaoVenda + offsetAltura)
+    local destinoRetornoLevantado = CFrame.new(CONFIG.PosicaoRetorno + offsetAltura)
+
+    local carro, assento = encontrarMeuCarroPerto()
+    if not carro or not assento then
+        warn("[PRIME X] Seu carro nao foi encontrado no raio de " .. CONFIG.RaioDetectarCarro .. " studs.")
         restaurarCamera()
-		return
-	end
-	if not entrarNoCarro(carro, assento) then
-		warn("Não foi possível sentar no seu carro.")
+        return false
+    end
+
+    if not entrarNoCarro(carro, assento) then
+        warn("[PRIME X] Nao foi possivel sentar no seu carro.")
         restaurarCamera()
-		return
-	end
-	teleporteLivre(destinoVendaLevantado, carro)
-	task.wait(CONFIG.EsperaCarregarMapa)
-	sairDoCarro()
-	task.wait(0.1)
-	local prompt, parteNpc = encontrarPromptNpcVenda()
-	if not prompt or not parteNpc then
-		warn("ProximityPrompt de 'Vender Minérios' não encontrado após sair do carro.")
-		entrarNoCarro(carro, assento)
-		task.wait(0.05)
-		teleporteLivre(destinoRetornoLevantado, carro)
-		task.wait(CONFIG.EsperaCarregarMapa)
-		sairDoCarro()
-		task.wait(0.1)
+        return false
+    end
+
+    if not teleporteLivre(destinoVendaLevantado, carro) then
+        warn("[PRIME X] Falha ao teleportar para o vendedor.")
         restaurarCamera()
-		return
-	end
-	voarDevagarAteNpc(parteNpc)
-	task.wait(0.05)
-	segurarAteAbrirMenuVenda(prompt, parteNpc)
-	task.wait(0.08)
-	local coordenadasVenda = CONFIG.CoordenadasPC
-	local coordenadaFechar = CONFIG.CoordenadaFecharPC
+        return false
+    end
+    task.wait(CONFIG.EsperaCarregarMapa)
+    sairDoCarro()
+    task.wait(0.2)
+
+    local prompt, parteNpc = encontrarPromptNpcVenda()
+    if not prompt or not parteNpc then
+        warn("[PRIME X] ProximityPrompt de Vender Minerios nao encontrado.")
+        local voltou = retornarParaMina(carro, assento, destinoRetornoLevantado)
+        restaurarCamera()
+        return false
+    end
+
+    if not voarDevagarAteNpc(parteNpc) then
+        warn("[PRIME X] Nao foi possivel chegar ao NPC; venda cancelada.")
+        local voltou = retornarParaMina(carro, assento, destinoRetornoLevantado)
+        restaurarCamera()
+        return false
+    end
+    task.wait(0.15)
+
+    -- O menu precisa estar realmente visivel antes de clicar em qualquer opcao.
+    local menuAbriu = false
+    for tentativa = 1, (CONFIG.TentativasAbrirMenu or 2) do
+        if not prompt or not prompt.Parent or not prompt.Enabled then
+            prompt, parteNpc = encontrarPromptNpcVenda()
+        end
+        if not prompt or not parteNpc then break end
+
+        menuAbriu = segurarAteAbrirMenuVenda(prompt, parteNpc)
+        if menuAbriu or menuVendaEstaAberto() then
+            menuAbriu = true
+            break
+        end
+        warn("[PRIME X] Menu de venda nao abriu; tentando novamente (" .. tentativa .. ").")
+        task.wait(0.35)
+    end
+
+    if not menuAbriu then
+        warn("[PRIME X] Venda cancelada: menu nao abriu. Nenhum clique de venda foi enviado.")
+        local voltou = retornarParaMina(carro, assento, destinoRetornoLevantado)
+        restaurarCamera()
+        return false
+    end
+
+    task.wait(0.2)
+    local coordenadasVenda = CONFIG.CoordenadasPC
+    local coordenadaFechar = CONFIG.CoordenadaFecharPC
+    local todosCliquesEnviados = true
+
     for i = 1, #coordenadasVenda do
+        if not menuVendaEstaAberto() then
+            warn("[PRIME X] Menu fechou antes de concluir os cliques. Venda interrompida.")
+            todosCliquesEnviados = false
+            break
+        end
+
         local coord = coordenadasVenda[i]
         local clicou = clicarCoordenada(coord.x, coord.y)
-        print("Venda " .. i .. " (" .. coord.x .. ", " .. coord.y .. ") | sucesso=" .. tostring(clicou))
+        print("[PRIME X] Venda " .. i .. " (" .. coord.x .. ", " .. coord.y .. ") | clique=" .. tostring(clicou))
+        if not clicou then
+            todosCliquesEnviados = false
+        end
         if i < #coordenadasVenda then
             task.wait(CONFIG.IntervaloCliqueVender)
         end
     end
-	if coordenadaFechar then
-		print("Clicando no X (" .. coordenadaFechar.x .. ", " .. coordenadaFechar.y .. ")")
-		clicarCoordenada(coordenadaFechar.x, coordenadaFechar.y)
-		task.wait(0.08)
-	end
-	entrarNoCarro(carro, assento)
-	task.wait(0.05)
-	teleporteLivre(destinoRetornoLevantado, carro)
-	task.wait(CONFIG.EsperaCarregarMapa)
-	sairDoCarro()
-	task.wait(0.1)
+
+    -- Dar tempo para o jogo processar a ultima venda antes de fechar/teleportar.
+    task.wait(CONFIG.EsperaAposVenda or 1.0)
+
+    if coordenadaFechar then
+        if menuVendaEstaAberto() then
+            clicarCoordenada(coordenadaFechar.x, coordenadaFechar.y)
+            task.wait(0.2)
+        end
+    end
+
+    local voltou = retornarParaMina(carro, assento, destinoRetornoLevantado)
     restaurarCamera()
+
+    if not voltou then
+        warn("[PRIME X] Venda processada, mas o retorno a mina falhou.")
+        return false
+    end
+    if not todosCliquesEnviados then
+        warn("[PRIME X] Retorno concluido, mas um ou mais cliques de venda falharam.")
+        return false
+    end
+
+    print("[PRIME X] Venda finalizada; personagem retornou a mina.")
+    return true
 end
 local function miningLoop()
     while State.Running and State.Mining do
@@ -1512,17 +1632,28 @@ local function miningLoop()
                     if MineriosDesdeVenda >= ORES_POR_VENDA and State.Running and State.Mining then
                         State.Status = "9 minerios coletados; iniciando venda"
                         stopFlight()
-                        executarVendaERetorno()
-                        MineriosDesdeVenda = 0
-                        if State.Running and State.Mining then
+                        local vendaConcluida = executarVendaERetorno()
+                        if not State.Mining then
+                            break -- nao continuar voando se o retorno para a mina falhar
+                        end
+                        if vendaConcluida then
+                            -- A venda terminou; zerar o contador antes de preparar a proxima rodada.
+                            MineriosDesdeVenda = 0
+                            task.wait(0.25)
                             refreshCharacter()
-                            State.Status = "Venda concluida; selecionando a picareta"
-                            if not activatePickaxe() then
-                                State.Status = "Nao foi possivel confirmar a picareta equipada apos a venda"
-                                task.wait(0.5)
-                            else
+                            State.Status = "De volta a mina; equipando picareta no slot 1"
+                            if activatePickaxe() then
                                 State.Status = "Picareta confirmada; retomando mineracao"
+                            else
+                                State.Status = "Picareta nao equipada; mineracao pausada por seguranca"
+                                State.Mining = false
+                                stopFlight()
+                                pararCameraMineracao(true)
+                                break
                             end
+                        else
+                            State.Status = "Venda nao confirmada; contador mantido para nova tentativa"
+                            task.wait(1.0)
                         end
                     end
                 else
