@@ -1543,6 +1543,35 @@ local function clicarCoordenada(x, y)
     return true
 end
 
+-- Clique reforcado exclusivo para fechar o X do painel no mobile.
+-- Move o cursor ate a coordenada e envia mouse + toque, como no script de exemplo.
+local function clicarNoXVenda(x, y)
+    pcall(function()
+        VirtualInputManager:SendMouseMoveEvent(x, y, game)
+    end)
+    task.wait(0.05)
+
+    local mouseOk = pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+        task.wait(0.08)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+    end)
+
+    local touchOk = pcall(function()
+        if VirtualInputManager.SendTouchEvent then
+            VirtualInputManager:SendTouchEvent(1, Enum.UserInputState.Begin, x, y)
+            task.wait(0.08)
+            VirtualInputManager:SendTouchEvent(1, Enum.UserInputState.End, x, y)
+        end
+    end)
+
+    if not mouseOk and not touchOk then
+        warn("[PRIME X MOBILE] Falha ao clicar no X do painel de venda.")
+        return false
+    end
+    return true
+end
+
 local function executarVendaERetorno()
     -- Desliga a camera superior antes de entrar no carro e deixa a camera normal do jogo durante toda a venda.
     pararCameraMineracao(true)
@@ -1637,8 +1666,8 @@ local function executarVendaERetorno()
 
 	if coordenadaFechar then
 		print("Clicando no X (" .. coordenadaFechar.x .. ", " .. coordenadaFechar.y .. ")")
-		clicarCoordenada(coordenadaFechar.x, coordenadaFechar.y)
-		task.wait(0.08)
+		clicarNoXVenda(coordenadaFechar.x, coordenadaFechar.y)
+		task.wait(0.15)
 	end
 
     -- O carro só retorna quando o personagem estiver presente e sentado nele.
