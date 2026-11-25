@@ -714,7 +714,7 @@ local function iniciarCameraSuperior()
         local root = Root
         if State.Running and State.Mining and root and root.Parent then
             local foco = root.Position + Vector3.new(0, 1.5, 0)
-            camera.CFrame = CFrame.lookAt(root.Position + Vector3.new(0, 25, 0), foco)
+            camera.CFrame = CFrame.lookAt(root.Position + Vector3.new(0, 15, 0), foco)
             camera.Focus = CFrame.new(foco)
         end
     end)
@@ -1572,108 +1572,169 @@ end
 
 -- Toque/clique nas coordenadas da tela mobile.
 local function clicarCoordenada(x, y)
+    local camera = Workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize
+    if not viewport or x < 0 or y < 0 or x >= viewport.X or y >= viewport.Y then
+        warn("[PRIME X MOBILE] Coordenada fora da tela: " .. tostring(x) .. ", " .. tostring(y))
+        return false
+    end
+
     local okDown = pcall(function()
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
     end)
-    task.wait(0.08)
+    if not okDown then
+        warn("[PRIME X MOBILE] Falha ao pressionar na coordenada.")
+        return false
+    end
+
+    task.wait(0.14)
     local okUp = pcall(function()
         VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
-    if not okDown or not okUp then
-        warn("[PRIME X MOBILE] Nao foi possivel tocar na coordenada.")
+    if not okUp then
+        -- Evita deixar o botao virtual pressionado caso a liberacao falhe.
+        pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end)
+        warn("[PRIME X MOBILE] Falha ao soltar o clique.")
         return false
     end
+
+    task.wait(0.18)
     return true
 end
 
 local function executarVendaERetorno()
-    -- Desliga a camera superior antes de entrar no carro e deixa a camera normal do jogo durante toda a venda.
+    -- Desliga a camera superior durante o deslocamento e a interacao com o vendedor.
     pararCameraMineracao(true)
-	local character, hrp = obterPersonagem()
-	if not character or not hrp then
-		warn("Personagem ou HumanoidRootPart não encontrado.")
-        voltarCameraSuperior()
-		return
-	end
 
-	local offsetAltura = Vector3.new(0, CONFIG.AlturaLevantadaTp, 0)
-	local destinoVendaLevantado = CFrame.new(CONFIG.PosicaoVenda + offsetAltura)
-	local destinoRetornoLevantado = CFrame.new(CONFIG.PosicaoRetorno + offsetAltura)
-
-	local carro, assento = encontrarMeuCarroPerto()
-	if not carro or not assento then
-		warn("Seu carro não foi encontrado no raio de " .. CONFIG.RaioDetectarCarro .. " studs.")
-        voltarCameraSuperior()
-		return
-	end
-
-	if not entrarNoCarro(carro, assento) then
-		warn("Não foi possível sentar no seu carro.")
-        voltarCameraSuperior()
-		return
-	end
-
-	teleporteLivre(destinoVendaLevantado, carro)
-	task.wait(CONFIG.EsperaCarregarMapa)
-
-	sairDoCarro()
-	task.wait(0.1)
-
-	local prompt, parteNpc = encontrarPromptNpcVenda()
-	if not prompt or not parteNpc then
-		warn("ProximityPrompt de 'Vender Minérios' não encontrado após sair do carro.")
-		entrarNoCarro(carro, assento)
-		task.wait(0.05)
-		teleporteLivre(destinoRetornoLevantado, carro)
-		task.wait(CONFIG.EsperaCarregarMapa)
-		sairDoCarro()
-		task.wait(0.1)
-        voltarCameraSuperior()
-		return
-	end
-
-	voarDevagarAteNpc(parteNpc)
-	task.wait(0.05)
-
-	local painelAberto = segurarAteAbrirMenuVenda(prompt, parteNpc)
-    if not painelAberto then
-        warn("[PRIME X MOBILE] VENDA CANCELADA: painel nao abriu; nenhum botao de venda sera clicado.")
-        entrarNoCarro(carro, assento)
-        task.wait(0.05)
-        teleporteLivre(destinoRetornoLevantado, carro)
-        task.wait(CONFIG.EsperaCarregarMapa)
-        sairDoCarro()
+    local function restaurarCamera()
         task.wait(0.1)
         voltarCameraSuperior()
+    end
+
+    local character, hrp = obterPersonagem()
+    if not character or not hrp then
+        warn("[PRIME X MOBILE] Venda cancelada: personagem indisponivel.")
+        restaurarCamera()
         return false
     end
-	task.wait(0.25)
 
-	local coordenadasVenda = CONFIG.CoordenadasCelular
-	local coordenadaFechar = CONFIG.CoordenadaFecharX
-    -- Cada botao recebe somente um clique por visita ao vendedor.
-    for i = 1, #coordenadasVenda do
-        local coord = coordenadasVenda[i]
-        local clicou = clicarCoordenada(coord.x, coord.y)
-        print("Venda " .. i .. " (" .. coord.x .. ", " .. coord.y .. ") | sucesso=" .. tostring(clicou))
-        if i < #coordenadasVenda then
-            task.wait(CONFIG.IntervaloCliqueVender)
-        end
+    local offsetAltura = Vector3.new(0, CONFIG.AlturaLevantadaTp, 0)
+    local destinoVendaLevantado = CFrame.new(CONFIG.PosicaoVenda + offsetAltura)
+    local destinoRetornoLevantado = CFrame.new(CONFIG.PosicaoRetorno + offsetAltura)
+
+    local carro, assento = encontrarMeuCarroPerto()
+    if not carro or not assento then
+        warn("[PRIME X MOBILE] Venda cancelada: seu carro nao foi encontrado.")
+        restaurarCamera()
+        return false
     end
 
-	if coordenadaFechar then
-		print("Clicando no X (" .. coordenadaFechar.x .. ", " .. coordenadaFechar.y .. ")")
-		clicarCoordenada(coordenadaFechar.x, coordenadaFechar.y)
-		task.wait(0.08)
-	end
+    if not entrarNoCarro(carro, assento) then
+        warn("[PRIME X MOBILE] Venda cancelada: nao foi possivel entrar no carro.")
+        restaurarCamera()
+        return false
+    end
 
-	entrarNoCarro(carro, assento)
-	task.wait(0.05)
-	teleporteLivre(destinoRetornoLevantado, carro)
-	task.wait(CONFIG.EsperaCarregarMapa)
-	sairDoCarro()
-	task.wait(0.1)
-    voltarCameraSuperior()
+    teleporteLivre(destinoVendaLevantado, carro)
+    task.wait(math.max(CONFIG.EsperaCarregarMapa, 0.8))
+    sairDoCarro()
+    task.wait(0.25)
+
+    local prompt, parteNpc = encontrarPromptNpcVenda()
+    if not prompt or not parteNpc then
+        warn("[PRIME X MOBILE] Venda cancelada: prompt do vendedor nao encontrado.")
+        entrarNoCarro(carro, assento)
+        task.wait(0.15)
+        teleporteLivre(destinoRetornoLevantado, carro)
+        task.wait(math.max(CONFIG.EsperaCarregarMapa, 0.8))
+        sairDoCarro()
+        restaurarCamera()
+        return false
+    end
+
+    voarDevagarAteNpc(parteNpc)
+    task.wait(0.2)
+
+    local painelAberto = segurarAteAbrirMenuVenda(prompt, parteNpc)
+    if not painelAberto then
+        warn("[PRIME X MOBILE] Venda cancelada: o painel do vendedor nao abriu.")
+        entrarNoCarro(carro, assento)
+        task.wait(0.15)
+        teleporteLivre(destinoRetornoLevantado, carro)
+        task.wait(math.max(CONFIG.EsperaCarregarMapa, 0.8))
+        sairDoCarro()
+        restaurarCamera()
+        return false
+    end
+
+    -- Aguarda o menu terminar a animacao antes de tocar nos botoes.
+    task.wait(0.6)
+
+    local coordenadasVenda = CONFIG.CoordenadasCelular
+    for i = 1, #coordenadasVenda do
+        local coord = coordenadasVenda[i]
+        local clicou = false
+
+        -- Tenta novamente apenas quando o envio do clique falhar.
+        for tentativa = 1, 2 do
+            clicou = clicarCoordenada(coord.x, coord.y)
+            if clicou then break end
+            task.wait(0.35)
+        end
+
+        print("[PRIME X MOBILE] Botao de venda " .. i .. " | clique enviado=" .. tostring(clicou))
+        if not clicou then
+            warn("[PRIME X MOBILE] Um clique de venda falhou; interrompendo para nao fechar o menu incorretamente.")
+            restaurarCamera()
+            return false
+        end
+
+        -- Tempo para o servidor processar cada venda antes do proximo botao.
+        task.wait(math.max(CONFIG.IntervaloCliqueVender, 1.1))
+    end
+
+    local coordenadaFechar = CONFIG.CoordenadaFecharX
+    if not coordenadaFechar then
+        warn("[PRIME X MOBILE] Coordenada do X nao configurada.")
+        restaurarCamera()
+        return false
+    end
+
+    local fechou = false
+    for tentativa = 1, 3 do
+        print("[PRIME X MOBILE] Fechando menu (tentativa " .. tentativa .. ").")
+        if clicarCoordenada(coordenadaFechar.x, coordenadaFechar.y) then
+            -- Pedido do usuario: permanecer na venda por 2 segundos apos clicar no X.
+            task.wait(2.0)
+            if not menuVendaEstaAberto() then
+                fechou = true
+                break
+            end
+        end
+        task.wait(0.4)
+    end
+
+    if not fechou then
+        -- Mesmo se a interface nao confirmar o fechamento, retorna ao ponto de mineracao
+        -- para nao deixar o personagem preso no vendedor. A contagem sera preservada.
+        warn("[PRIME X MOBILE] Nao consegui confirmar o fechamento do menu; retornando ao ponto e mantendo a venda pendente.")
+    end
+
+    if not entrarNoCarro(carro, assento) then
+        warn("[PRIME X MOBILE] Menu fechado, mas nao foi possivel voltar ao carro.")
+        restaurarCamera()
+        return false
+    end
+
+    task.wait(0.2)
+    teleporteLivre(destinoRetornoLevantado, carro)
+    task.wait(math.max(CONFIG.EsperaCarregarMapa, 0.8))
+    sairDoCarro()
+    task.wait(0.2)
+    restaurarCamera()
+    return fechou
 end
 
 local function miningLoop()
@@ -1776,17 +1837,23 @@ local function miningLoop()
                     if MineriosDesdeVenda >= ORES_POR_VENDA and State.Running and State.Mining then
                         State.Status = "9 minerios coletados; iniciando venda"
                         stopFlight()
-                        executarVendaERetorno()
-                        MineriosDesdeVenda = 0
-                        if State.Running and State.Mining then
-                            refreshCharacter()
-                            State.Status = "Venda concluida; pressionando 1 para equipar a picareta"
-                            if not activatePickaxe() then
-                                State.Status = "Nao foi possivel pressionar 1 apos a venda"
-                                task.wait(0.5)
-                            else
-                                State.Status = "Tecla 1 pressionada; retomando mineracao"
+                        local vendaConcluida = executarVendaERetorno()
+                        if vendaConcluida then
+                            MineriosDesdeVenda = 0
+                            if State.Running and State.Mining then
+                                refreshCharacter()
+                                State.Status = "Venda concluida; pressionando 1 para equipar a picareta"
+                                if not activatePickaxe() then
+                                    State.Status = "Nao foi possivel pressionar 1 apos a venda"
+                                    task.wait(0.5)
+                                else
+                                    State.Status = "Tecla 1 pressionada; retomando mineracao"
+                                end
                             end
+                        else
+                            -- Mantem a contagem para tentar vender novamente apos o proximo minerio.
+                            State.Status = "Falha na venda; contagem preservada (" .. tostring(MineriosDesdeVenda) .. "). Tentarei novamente."
+                            task.wait(1.5)
                         end
                     end
                 else
