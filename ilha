@@ -1491,83 +1491,40 @@ end
 
 local function segurarAteAbrirMenuVenda(prompt, parteNpc)
     local character, hrp, humanoid = obterPersonagem()
-    if not character or not hrp or not prompt or not prompt.Parent or not parteNpc or not parteNpc.Parent then
-        warn("[PRIME X MOBILE] ERRO VENDA: personagem, prompt ou NPC indisponivel.")
+    if not character or not hrp or not humanoid or not prompt or not prompt.Parent or not parteNpc or not parteNpc.Parent then
+        warn("[PRIME X MOBILE] NPC ou personagem indisponivel para iniciar a venda.")
         return false
     end
 
-    -- Aproxima e posiciona dentro do alcance real do prompt, sem alterar a camera.
+    -- Posiciona o personagem no alcance e aciona o prompt sem ficar
+    -- procurando texto/estado do painel na interface.
     local alcance = tonumber(prompt.MaxActivationDistance) or 10
     local distanciaAlvo = math.max(1.5, math.min(alcance * 0.55, 4))
-    local inicioAproximacao = os.clock()
-    while (hrp.Position - parteNpc.Position).Magnitude > distanciaAlvo and os.clock() - inicioAproximacao < 4 do
-        local direcao = parteNpc.Position - hrp.Position
-        if direcao.Magnitude < 0.1 then break end
-        local novaPos = parteNpc.Position - direcao.Unit * distanciaAlvo
-        character:PivotTo(CFrame.lookAt(novaPos, Vector3.new(parteNpc.Position.X, novaPos.Y, parteNpc.Position.Z)))
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        task.wait(0.1)
-        character, hrp, humanoid = obterPersonagem()
-        if not hrp then break end
-    end
-
-    if not hrp or not prompt.Parent or not prompt.Enabled then
-        warn("[PRIME X MOBILE] ERRO VENDA: prompt desativado ou personagem indisponivel.")
-        return false
-    end
-
-    local distancia = (hrp.Position - parteNpc.Position).Magnitude
-    if distancia > alcance then
-        warn("[PRIME X MOBILE] ERRO VENDA: fora do alcance. Distancia=" .. string.format("%.1f", distancia) ..
-            " | Alcance=" .. tostring(alcance))
-        return false
+    local direcao = parteNpc.Position - hrp.Position
+    if direcao.Magnitude > distanciaAlvo then
+        local posicao = parteNpc.Position - direcao.Unit * distanciaAlvo
+        character:PivotTo(CFrame.lookAt(posicao, Vector3.new(parteNpc.Position.X, posicao.Y, parteNpc.Position.Z)))
     end
 
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
     hrp.CFrame = CFrame.lookAt(hrp.Position, Vector3.new(parteNpc.Position.X, hrp.Position.Y, parteNpc.Position.Z))
-    task.wait(0.25)
+    task.wait(0.2)
 
     local holdDuracao = math.max(tonumber(prompt.HoldDuration) or 0, 0)
-    local tentativas = 3
-    for tentativa = 1, tentativas do
-        if not prompt.Parent or not prompt.Enabled then break end
-
-        -- Prioriza a ativacao direta do ProximityPrompt; fallback para hold normal.
-        if typeof(fireproximityprompt) == "function" then
-            local ok, erro = pcall(function()
-                fireproximityprompt(prompt, holdDuracao)
-            end)
-            if not ok then
-                warn("[PRIME X MOBILE] fireproximityprompt falhou: " .. tostring(erro))
-            end
-        else
-            local ok, erro = pcall(function()
-                prompt:InputHoldBegin()
-                task.wait(holdDuracao + 0.6)
-                prompt:InputHoldEnd()
-            end)
-            if not ok then
-                warn("[PRIME X MOBILE] InputHold do vendedor falhou: " .. tostring(erro))
-            end
-        end
-
-        local espera = os.clock()
-        while os.clock() - espera < 2.0 do
-            if menuVendaEstaAberto() then
-                print("[PRIME X MOBILE] Painel do vendedor aberto na tentativa " .. tentativa .. ".")
-                return true
-            end
-            task.wait(0.1)
-        end
+    if typeof(fireproximityprompt) == "function" then
+        pcall(function() fireproximityprompt(prompt, holdDuracao) end)
+    else
+        pcall(function()
+            prompt:InputHoldBegin()
+            task.wait(holdDuracao + 0.6)
+            prompt:InputHoldEnd()
+        end)
     end
 
-    warn("[PRIME X MOBILE] ERRO VENDA: NPC nao abriu o painel. Prompt=" ..
-        tostring(prompt.ActionText) .. " | Objeto=" .. tostring(prompt.ObjectText) ..
-        " | Distancia=" .. string.format("%.1f", (hrp.Position - parteNpc.Position).Magnitude) ..
-        " | Alcance=" .. tostring(alcance) .. " | Hold=" .. tostring(holdDuracao))
-    return false
+    -- Pequena pausa para o jogo abrir o menu; não faz checagem do painel.
+    task.wait(0.5)
+    return true
 end
 
 -- Toque/clique nas coordenadas da tela mobile.
@@ -1622,14 +1579,21 @@ local function executarVendaERetorno()
 	local prompt, parteNpc = encontrarPromptNpcVenda()
 	if not prompt or not parteNpc then
 		warn("ProximityPrompt de 'Vender Minérios' não encontrado após sair do carro.")
-		entrarNoCarro(carro, assento)
-		task.wait(0.05)
-		teleporteLivre(destinoRetornoLevantado, carro)
-		task.wait(CONFIG.EsperaCarregarMapa)
-		sairDoCarro()
-		task.wait(0.1)
+        if entrarNoCarro(carro, assento) then
+            task.wait(0.05)
+            local moveu = teleporteLivre(destinoRetornoLevantado, carro)
+            if moveu then
+                task.wait(CONFIG.EsperaCarregarMapa)
+                sairDoCarro()
+                task.wait(0.1)
+            end
+        else
+            warn("[PRIME X MOBILE] Carro nao retornou porque o personagem nao entrou nele.")
+            voltarCameraSuperior()
+            return false
+        end
         voltarCameraSuperior()
-		return
+		return false
 	end
 
 	voarDevagarAteNpc(parteNpc)
@@ -1637,13 +1601,20 @@ local function executarVendaERetorno()
 
 	local painelAberto = segurarAteAbrirMenuVenda(prompt, parteNpc)
     if not painelAberto then
-        warn("[PRIME X MOBILE] VENDA CANCELADA: painel nao abriu; nenhum botao de venda sera clicado.")
-        entrarNoCarro(carro, assento)
-        task.wait(0.05)
-        teleporteLivre(destinoRetornoLevantado, carro)
-        task.wait(CONFIG.EsperaCarregarMapa)
-        sairDoCarro()
-        task.wait(0.1)
+        warn("[PRIME X MOBILE] Nao foi possivel acionar o prompt de venda.")
+        if entrarNoCarro(carro, assento) then
+            task.wait(0.05)
+            local moveu = teleporteLivre(destinoRetornoLevantado, carro)
+            if moveu then
+                task.wait(CONFIG.EsperaCarregarMapa)
+                sairDoCarro()
+                task.wait(0.1)
+            end
+        else
+            warn("[PRIME X MOBILE] Carro nao retornou porque o personagem nao entrou nele.")
+            voltarCameraSuperior()
+            return false
+        end
         voltarCameraSuperior()
         return false
     end
@@ -1654,12 +1625,15 @@ local function executarVendaERetorno()
     -- Cada botao recebe somente um clique por visita ao vendedor.
     for i = 1, #coordenadasVenda do
         local coord = coordenadasVenda[i]
-        local clicou = clicarCoordenada(coord.x, coord.y)
-        print("Venda " .. i .. " (" .. coord.x .. ", " .. coord.y .. ") | sucesso=" .. tostring(clicou))
+        clicarCoordenada(coord.x, coord.y)
+        print("Venda " .. i .. " (" .. coord.x .. ", " .. coord.y .. ")")
         if i < #coordenadasVenda then
             task.wait(CONFIG.IntervaloCliqueVender)
         end
     end
+
+    -- Aguarda 1 segundo no vendedor após concluir todos os cliques.
+    task.wait(1)
 
 	if coordenadaFechar then
 		print("Clicando no X (" .. coordenadaFechar.x .. ", " .. coordenadaFechar.y .. ")")
@@ -1667,13 +1641,38 @@ local function executarVendaERetorno()
 		task.wait(0.08)
 	end
 
-	entrarNoCarro(carro, assento)
-	task.wait(0.05)
-	teleporteLivre(destinoRetornoLevantado, carro)
-	task.wait(CONFIG.EsperaCarregarMapa)
-	sairDoCarro()
-	task.wait(0.1)
+    -- O carro só retorna quando o personagem estiver presente e sentado nele.
+    local personagemPronto = false
+    local entrouNoCarro = false
+    local inicioRetorno = os.clock()
+    while State.Running and (os.clock() - inicioRetorno) < 12 do
+        local charAtual, rootAtual, humanoidAtual = obterPersonagem()
+        if charAtual and rootAtual and humanoidAtual and humanoidAtual.Health > 0 then
+            personagemPronto = true
+            entrouNoCarro = entrarNoCarro(carro, assento)
+            if entrouNoCarro then break end
+        end
+        task.wait(0.2)
+    end
+
+    if not personagemPronto or not entrouNoCarro then
+        warn("[PRIME X MOBILE] Retorno cancelado: personagem nao ficou pronto/sentado; carro nao sera movido sozinho.")
+        voltarCameraSuperior()
+        return false
+    end
+
+    task.wait(0.05)
+    local moveuComPersonagem = teleporteLivre(destinoRetornoLevantado, carro)
+    if not moveuComPersonagem then
+        warn("[PRIME X MOBILE] Retorno cancelado: personagem nao acompanhou o carro.")
+        voltarCameraSuperior()
+        return false
+    end
+    task.wait(CONFIG.EsperaCarregarMapa)
+    sairDoCarro()
+    task.wait(0.1)
     voltarCameraSuperior()
+    return true
 end
 
 local function miningLoop()
@@ -1776,17 +1775,20 @@ local function miningLoop()
                     if MineriosDesdeVenda >= ORES_POR_VENDA and State.Running and State.Mining then
                         State.Status = "9 minerios coletados; iniciando venda"
                         stopFlight()
-                        executarVendaERetorno()
+                        local retornouParaMina = executarVendaERetorno()
                         MineriosDesdeVenda = 0
-                        if State.Running and State.Mining then
+                        if State.Running and State.Mining and retornouParaMina then
                             refreshCharacter()
-                            State.Status = "Venda concluida; pressionando 1 para equipar a picareta"
+                            State.Status = "Na mina; pressionando 1 para equipar a picareta"
                             if not activatePickaxe() then
-                                State.Status = "Nao foi possivel pressionar 1 apos a venda"
+                                State.Status = "Nao foi possivel pressionar 1 na mina"
                                 task.wait(0.5)
                             else
-                                State.Status = "Tecla 1 pressionada; retomando mineracao"
+                                State.Status = "Picareta equipada pelo slot 1; retomando mineracao"
                             end
+                        elseif State.Running and State.Mining then
+                            State.Status = "Retorno nao concluido; mineracao pausada por seguranca"
+                            State.Mining = false
                         end
                     end
                 else
