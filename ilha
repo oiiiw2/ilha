@@ -730,6 +730,8 @@ local function voltarCameraSuperior()
 end
 
 local stopFlight
+-- Declarada antes do evento CharacterAdded para que o callback limpe a mesma tabela local.
+local OriginalCollisions = {}
 Player.CharacterAdded:Connect(function()
     if stopFlight then stopFlight() end
     OriginalCollisions = {}
@@ -855,7 +857,6 @@ end
 -- e tentativa de pulo quando detectar que o personagem ficou preso.
 local FlightVelocity, FlightGyro
 local NoclipConnection
-local OriginalCollisions = {}
 local SavedAutoRotate
 
 -- Atravessa somente paredes/pecas com o proprio personagem enquanto ativo.
@@ -1122,26 +1123,87 @@ local function holdMiningPrompt(prompt)
 end
 
 local function pressionarTecla1ParaEquiparPicareta()
-    -- Depois da venda, pressiona 1 para selecionar o primeiro slot.
+    -- Envia pressionamento e soltura separados para evitar tecla presa.
     local inputManager = game:GetService("VirtualInputManager")
-    local ok, err = pcall(function()
+    local okDown, erroDown = pcall(function()
         inputManager:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-        task.wait(0.08)
-        inputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
     end)
-    if not ok then
-        warn("[XLZ] Nao foi possivel pressionar 1 para equipar a picareta: " .. tostring(err))
+    if not okDown then
+        warn("[XLZ] Nao foi possivel pressionar 1: " .. tostring(erroDown))
         return false
     end
-    task.wait(0.25)
+
+    task.wait(0.18)
+    local okUp, erroUp = pcall(function()
+        inputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+    end)
+    if not okUp then
+        pcall(function()
+            inputManager:SendKeyEvent(false, Enum.KeyCode.One, false, game)
+        end)
+        warn("[XLZ] Nao foi possivel soltar a tecla 1: " .. tostring(erroUp))
+        return false
+    end
+
+    task.wait(0.45)
     return true
 end
 
+local function encontrarPicaretaNaMochila()
+    local backpack = Player:FindFirstChildOfClass("Backpack")
+    if not backpack then return nil end
+
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            local nome = string.lower(item.Name)
+            if string.find(nome, "picareta", 1, true) or string.find(nome, "pickaxe", 1, true) then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
 local function activatePickaxe()
-    -- Depois da venda, apenas pressiona 1 para selecionar a picareta.
-    -- Nao procura, caminha ate ela nem interage com prompt algum.
-    State.Status = "Selecionando picareta pelo slot 1"
-    return pressionarTecla1ParaEquiparPicareta()
+    State.Status = "Pressionando 1 para equipar a picareta"
+
+    -- Primeiro pressiona 1 e verifica se o jogo realmente equipou a ferramenta.
+    for tentativa = 1, 3 do
+        pressionarTecla1ParaEquiparPicareta()
+        local inicio = os.clock()
+        repeat
+            refreshCharacter()
+            if hasEquippedPickaxe() then
+                State.Status = "Picareta equipada pelo slot 1"
+                return true
+            end
+            task.wait(0.1)
+        until os.clock() - inicio >= 1.0
+        if tentativa < 3 then task.wait(0.25) end
+    end
+
+    -- Fallback para clientes mobile que nao processam o atalho de teclado.
+    refreshCharacter()
+    local ferramenta = encontrarPicaretaNaMochila()
+    if ferramenta and Humanoid and Humanoid.Parent then
+        local ok, erro = pcall(function()
+            Humanoid:EquipTool(ferramenta)
+        end)
+        if not ok then warn("[XLZ] EquipTool falhou: " .. tostring(erro)) end
+
+        local inicio = os.clock()
+        repeat
+            if hasEquippedPickaxe() then
+                State.Status = "Picareta equipada (recuperacao automatica)"
+                return true
+            end
+            task.wait(0.1)
+        until os.clock() - inicio >= 1.5
+    end
+
+    State.Status = "ERRO: nao consegui equipar a picareta no slot 1"
+    warn("[XLZ] Picareta nao foi equipada. Verifique se ela esta no slot 1 ou na mochila.")
+    return false
 end
 
 local function findMiningPromptAtPoint(center, radius)
@@ -1631,6 +1693,26 @@ local function executarVendaERetorno()
         return false
     end
 
+    -- Recuperacao centralizada: falhas na venda nao deixam o jogador no NPC.
+    local function retornarAoPontoDeMineracao()
+        local _, _, humanoidAtual = obterPersonagem()
+        local jaNoCarro = humanoidAtual and humanoidAtual.SeatPart
+            and humanoidAtual.SeatPart:IsDescendantOf(carro)
+        if not jaNoCarro and not entrarNoCarro(carro, assento) then
+            warn("[PRIME X MOBILE] Nao consegui entrar no carro para retornar ao ponto.")
+            restaurarCamera()
+            return false
+        end
+
+        task.wait(0.2)
+        teleporteLivre(destinoRetornoLevantado, carro)
+        task.wait(math.max(CONFIG.EsperaCarregarMapa, 0.8))
+        sairDoCarro()
+        task.wait(0.2)
+        restaurarCamera()
+        return true
+    end
+
     if not entrarNoCarro(carro, assento) then
         warn("[PRIME X MOBILE] Venda cancelada: nao foi possivel entrar no carro.")
         restaurarCamera()
@@ -1686,8 +1768,12 @@ local function executarVendaERetorno()
 
         print("[PRIME X MOBILE] Botao de venda " .. i .. " | clique enviado=" .. tostring(clicou))
         if not clicou then
-            warn("[PRIME X MOBILE] Um clique de venda falhou; interrompendo para nao fechar o menu incorretamente.")
-            restaurarCamera()
+            warn("[PRIME X MOBILE] Um clique de venda falhou; tentando retornar ao ponto sem zerar a contagem.")
+            if CONFIG.CoordenadaFecharX then
+                clicarCoordenada(CONFIG.CoordenadaFecharX.x, CONFIG.CoordenadaFecharX.y)
+                task.wait(2.0)
+            end
+            retornarAoPontoDeMineracao()
             return false
         end
 
@@ -1698,7 +1784,7 @@ local function executarVendaERetorno()
     local coordenadaFechar = CONFIG.CoordenadaFecharX
     if not coordenadaFechar then
         warn("[PRIME X MOBILE] Coordenada do X nao configurada.")
-        restaurarCamera()
+        retornarAoPontoDeMineracao()
         return false
     end
 
@@ -1724,7 +1810,7 @@ local function executarVendaERetorno()
 
     if not entrarNoCarro(carro, assento) then
         warn("[PRIME X MOBILE] Menu fechado, mas nao foi possivel voltar ao carro.")
-        restaurarCamera()
+        retornarAoPontoDeMineracao()
         return false
     end
 
@@ -1740,7 +1826,7 @@ end
 local function miningLoop()
     iniciarCameraSuperior()
     -- Ao ativar, exige que a picareta ja esteja na mao.
-    -- Depois de cada venda, pressiona 1; nao procura nem pega ferramenta.
+    -- Depois de cada venda, pressiona 1 e confirma que a picareta foi equipada.
     while State.Running and State.Mining do
         for index, pointCFrame in ipairs(Points) do
             if not State.Running or not State.Mining then break end
@@ -1844,10 +1930,12 @@ local function miningLoop()
                                 refreshCharacter()
                                 State.Status = "Venda concluida; pressionando 1 para equipar a picareta"
                                 if not activatePickaxe() then
-                                    State.Status = "Nao foi possivel pressionar 1 apos a venda"
-                                    task.wait(0.5)
+                                    State.Status = "Picareta nao equipada; mineracao pausada para evitar falhas"
+                                    State.Mining = false
+                                    stopFlight()
+                                    pararCameraMineracao(true)
                                 else
-                                    State.Status = "Tecla 1 pressionada; retomando mineracao"
+                                    State.Status = "Picareta equipada; retomando mineracao"
                                 end
                             end
                         else
